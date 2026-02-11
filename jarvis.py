@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""A lightweight, terminal-based JARVIS-style assistant with web lookup."""
+"""A lightweight, terminal-based JARVIS-style assistant with web lookup and utilities."""
 
 from __future__ import annotations
 
+import ast
 import datetime as dt
 import html
 import json
@@ -15,6 +16,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
+from pathlib import Path
+from typing import Any
 
 
 SYSTEM_PROMPT = (
@@ -72,6 +75,8 @@ class Jarvis:
         self.name = "JARVIS"
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         self.api_key = os.getenv("OPENAI_API_KEY")
+        self.history: list[str] = []
+        self.todo_file = Path("jarvis_todos.json")
 
     def greet(self) -> str:
         return (
@@ -82,6 +87,8 @@ class Jarvis:
     def handle(self, user_text: str) -> str:
         cleaned = user_text.strip()
         lower = cleaned.lower()
+        if cleaned:
+            self.history.append(cleaned)
 
         if not cleaned:
             return "I didn't catch that."
@@ -95,6 +102,12 @@ class Jarvis:
                   - system: OS and Python details
                   - run <command>: run a shell command
                   - google <query>: web search via Google
+                  - wiki <topic>: short Wikipedia summary
+                  - calc <expression>: safe calculator (e.g., calc 12*(3+4))
+                  - todo add <task>: save a todo task
+                  - todo list: show saved tasks
+                  - todo clear: remove all tasks
+                  - history: show recent prompts in this session
                   - exit / quit: leave the assistant
 
                 Everything else is handled as a general AI prompt.
@@ -114,6 +127,9 @@ class Jarvis:
                 f"Python: {platform.python_version()}"
             )
 
+        if lower == "history":
+            return self._show_history()
+
         if lower.startswith("run "):
             command = cleaned[4:].strip()
             if not command:
@@ -126,6 +142,21 @@ class Jarvis:
                 return "Please provide a query after 'google'."
             return self._google_answer(query) or "I could not fetch Google results right now."
 
+        if lower.startswith("wiki "):
+            topic = cleaned[5:].strip()
+            if not topic:
+                return "Please provide a topic after 'wiki'."
+            return self._wiki_summary(topic) or "I couldn't find a Wikipedia summary right now."
+
+        if lower.startswith("calc "):
+            expression = cleaned[5:].strip()
+            if not expression:
+                return "Please provide an expression after 'calc'."
+            return self._calculate(expression)
+
+        if lower.startswith("todo "):
+            return self._handle_todo(cleaned[5:].strip())
+
         llm_reply = self._ask_openai(cleaned)
         if llm_reply:
             return llm_reply
@@ -135,6 +166,15 @@ class Jarvis:
             return google_reply
 
         return self._offline_fallback(cleaned)
+
+    def _show_history(self) -> str:
+        if not self.history:
+            return "No prompts in this session yet."
+        recent = self.history[-10:]
+        lines = ["Recent prompts:"]
+        for idx, item in enumerate(recent, start=1):
+            lines.append(f"{idx}. {item}")
+        return "\n".join(lines)
 
     def _run_shell(self, command: str) -> str:
         try:
@@ -259,6 +299,105 @@ class Jarvis:
                 results.append((title_text, snippet_text))
         return results
 
+    def _wiki_summary(self, topic: str) -> str | None:
+        encoded = urllib.parse.quote(topic)
+        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded}"
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "jarvis-assistant/1.0"},
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, json.JSONDecodeError):
+            return None
+
+        extract = body.get("extract")
+        title = body.get("title")
+        if not extract:
+            return None
+
+        heading = f"Wikipedia: {title}" if title else "Wikipedia summary"
+        return f"{heading}\n{extract}"
+
+    def _calculate(self, expression: str) -> str:
+        try:
+            tree = ast.parse(expression, mode="eval")
+            value = self._eval_ast(tree.body)
+        except (ValueError, SyntaxError, ZeroDivisionError):
+            return "Invalid expression. Use numbers and operators like + - * / ** ( )."
+        return f"Result: {value}"
+
+    def _eval_ast(self, node: ast.AST) -> float:
+        operators: dict[type[ast.AST], Any] = {
+            ast.Add: lambda a, b: a + b,
+            ast.Sub: lambda a, b: a - b,
+            ast.Mult: lambda a, b: a * b,
+            ast.Div: lambda a, b: a / b,
+            ast.Pow: lambda a, b: a**b,
+            ast.Mod: lambda a, b: a % b,
+        }
+
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return float(node.value)
+
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            val = self._eval_ast(node.operand)
+            return val if isinstance(node.op, ast.UAdd) else -val
+
+        if isinstance(node, ast.BinOp) and type(node.op) in operators:
+            left = self._eval_ast(node.left)
+            right = self._eval_ast(node.right)
+            return operators[type(node.op)](left, right)
+
+        raise ValueError("Unsupported expression")
+
+    def _handle_todo(self, raw: str) -> str:
+        if not raw:
+            return "Use: todo add <task> | todo list | todo clear"
+
+        lower = raw.lower()
+        if lower == "list":
+            items = self._read_todos()
+            if not items:
+                return "No todo items yet."
+            lines = ["Todo items:"]
+            for idx, item in enumerate(items, start=1):
+                lines.append(f"{idx}. {item}")
+            return "\n".join(lines)
+
+        if lower == "clear":
+            self._write_todos([])
+            return "All todo items cleared."
+
+        if lower.startswith("add "):
+            task = raw[4:].strip()
+            if not task:
+                return "Please provide a task after 'todo add'."
+            items = self._read_todos()
+            items.append(task)
+            self._write_todos(items)
+            return f"Added todo: {task}"
+
+        return "Use: todo add <task> | todo list | todo clear"
+
+    def _read_todos(self) -> list[str]:
+        if not self.todo_file.exists():
+            return []
+        try:
+            data = json.loads(self.todo_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return []
+
+        if not isinstance(data, list):
+            return []
+
+        return [str(item) for item in data]
+
+    def _write_todos(self, items: list[str]) -> None:
+        self.todo_file.write_text(json.dumps(items, indent=2), encoding="utf-8")
+
     @staticmethod
     def _offline_fallback(prompt: str) -> str:
         lower = prompt.lower()
@@ -269,8 +408,8 @@ class Jarvis:
         if "plan" in lower:
             return "Sure—tell me your goal, deadline, and constraints; I'll draft a plan."
         return (
-            "I can help with planning, coding support, shell commands, quick answers, and Google search. "
-            "Use 'google <query>' for explicit web lookup."
+            "I can help with planning, coding support, shell commands, web lookup, quick math, and todos. "
+            "Use 'help' to see everything I can do."
         )
 
 

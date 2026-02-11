@@ -1,13 +1,16 @@
 # JARVIS-style AI Assistant
 
-This repository includes a lightweight terminal-based assistant inspired by JARVIS, now with direct Google lookup support.
+This repository includes a lightweight terminal-based assistant inspired by JARVIS, with web lookup and handy local tools.
 
 ## Features
 - Interactive command loop
 - Built-in utility commands (`time`, `date`, `system`, `run <command>`)
 - Web lookup command (`google <query>`) for live search snippets
+- Wikipedia summaries (`wiki <topic>`)
+- Safe calculator (`calc <expression>`)
+- Simple persistent todo list (`todo add/list/clear`)
+- Session history (`history`)
 - Optional OpenAI-backed responses when `OPENAI_API_KEY` is set
-- Fallback behavior when no API key is configured
 
 ## Run
 ```bash
@@ -19,6 +22,10 @@ python3 jarvis.py
 - `time`, `date`, `system`
 - `run <command>`: run a shell command
 - `google <query>`: search Google and return top snippets
+- `wiki <topic>`: fetch a short Wikipedia summary
+- `calc <expression>`: evaluate math expressions safely
+- `todo add <task>` / `todo list` / `todo clear`
+- `history`: show recent prompts in this session
 - `exit` / `quit`
 
 ## Optional environment variables
@@ -29,7 +36,11 @@ python3 jarvis.py
 ```text
 $ python3 jarvis.py
 JARVIS online. Say 'help' to see commands, or ask me anything.
-You > google latest python version
-JARVIS > Here is what I found on Google for: latest python version
-1. ...
+You > calc 12*(3+4)
+JARVIS > Result: 84.0
+You > todo add finish project update
+JARVIS > Added todo: finish project update
+You > todo list
+JARVIS > Todo items:
+1. finish project update
 ```
