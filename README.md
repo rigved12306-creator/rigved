@@ -13,6 +13,7 @@ This repository includes a lightweight terminal-based assistant inspired by JARV
 - Session history (`history`)
 - Quick weather lookup (`weather <city>`)
 - Countdown timer (`timer <seconds>`)
+- Fun utilities (`joke`, `quote`, `uuid`, `password <length>`)
 - Optional OpenAI-backed responses when `OPENAI_API_KEY` is set
 
 ## Run
@@ -32,6 +33,8 @@ python3 jarvis.py
 - `history`: show recent prompts in this session
 - `weather <city>`: quick weather summary
 - `timer <seconds>`: waits and notifies when finished
+- `joke` / `quote` / `uuid`
+- `password <length>`: generate secure random password
 - `exit` / `quit`
 
 ## Optional environment variables
@@ -49,6 +52,8 @@ JARVIS > Added todo: finish project update
 You > todo list
 JARVIS > Todo items:
 1. finish project update
-You > weather delhi
-JARVIS > Weather: Delhi: +34°C, Haze
+You > password 16
+JARVIS > Generated password: ...
+You > quote
+JARVIS > 💡 ...
 ```

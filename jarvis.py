@@ -10,9 +10,11 @@ import json
 import os
 import platform
 import re
+import secrets
 import subprocess
 import textwrap
 import time
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -115,6 +117,10 @@ class Jarvis:
                   - note add <text>: save a personal note
                   - note list: show saved notes
                   - note clear: remove all notes
+                  - joke: random one-liner joke
+                  - quote: motivational quote
+                  - uuid: generate a unique id
+                  - password <length>: secure password generator
                   - exit / quit: leave the assistant
 
                 Everything else is handled as a general AI prompt.
@@ -176,6 +182,19 @@ class Jarvis:
 
         if lower.startswith("note "):
             return self._handle_notes(cleaned[5:].strip())
+
+        if lower == "joke":
+            return self._joke()
+
+        if lower == "quote":
+            return self._quote()
+
+        if lower == "uuid":
+            return f"UUID: {uuid.uuid4()}"
+
+        if lower.startswith("password "):
+            raw_len = cleaned[9:].strip()
+            return self._password(raw_len)
 
         llm_reply = self._ask_openai(cleaned)
         if llm_reply:
@@ -461,6 +480,42 @@ class Jarvis:
 
         return "Use: note add <text> | note list | note clear"
 
+
+    def _joke(self) -> str:
+        jokes = [
+            "Why do programmers prefer dark mode? Because light attracts bugs.",
+            "I would tell you a UDP joke, but you might not get it.",
+            "There are 10 kinds of people: those who understand binary and those who do not.",
+            "Debugging: being the detective in a crime movie where you are also the murderer.",
+        ]
+        return f"😄 {secrets.choice(jokes)}"
+
+    @staticmethod
+    def _quote() -> str:
+        quotes = [
+            "Small steps every day lead to big results.",
+            "Discipline beats motivation when motivation fades.",
+            "Done is better than perfect when learning.",
+            "Consistency compounds faster than intensity.",
+        ]
+        return f"💡 {secrets.choice(quotes)}"
+
+    @staticmethod
+    def _password(raw_len: str) -> str:
+        try:
+            length = int(raw_len)
+        except ValueError:
+            return "Password expects a number, e.g. 'password 16'."
+
+        if length < 8:
+            return "Use at least 8 characters for a safer password."
+        if length > 128:
+            return "Max password length is 128."
+
+        alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+"
+        generated = "".join(secrets.choice(alphabet) for _ in range(length))
+        return f"Generated password: {generated}"
+
     def _read_todos(self) -> list[str]:
         if not self.todo_file.exists():
             return []
@@ -503,7 +558,7 @@ class Jarvis:
         if "plan" in lower:
             return "Sure—tell me your goal, deadline, and constraints; I'll draft a plan."
         return (
-            "I can help with planning, coding support, shell commands, web lookup, quick math, todos, notes, and weather. "
+            "I can help with planning, coding support, shell commands, web lookup, quick math, todos, notes, weather, jokes, quotes, and passwords. "
             "Use 'help' to see everything I can do."
         )
 
