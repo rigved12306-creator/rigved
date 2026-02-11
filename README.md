@@ -9,7 +9,10 @@ This repository includes a lightweight terminal-based assistant inspired by JARV
 - Wikipedia summaries (`wiki <topic>`)
 - Safe calculator (`calc <expression>`)
 - Simple persistent todo list (`todo add/list/clear`)
+- Personal notes (`note add/list/clear`)
 - Session history (`history`)
+- Quick weather lookup (`weather <city>`)
+- Countdown timer (`timer <seconds>`)
 - Optional OpenAI-backed responses when `OPENAI_API_KEY` is set
 
 ## Run
@@ -25,7 +28,10 @@ python3 jarvis.py
 - `wiki <topic>`: fetch a short Wikipedia summary
 - `calc <expression>`: evaluate math expressions safely
 - `todo add <task>` / `todo list` / `todo clear`
+- `note add <text>` / `note list` / `note clear`
 - `history`: show recent prompts in this session
+- `weather <city>`: quick weather summary
+- `timer <seconds>`: waits and notifies when finished
 - `exit` / `quit`
 
 ## Optional environment variables
@@ -43,4 +49,6 @@ JARVIS > Added todo: finish project update
 You > todo list
 JARVIS > Todo items:
 1. finish project update
+You > weather delhi
+JARVIS > Weather: Delhi: +34°C, Haze
 ```

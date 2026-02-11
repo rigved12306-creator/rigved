@@ -12,6 +12,7 @@ import platform
 import re
 import subprocess
 import textwrap
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -77,6 +78,7 @@ class Jarvis:
         self.api_key = os.getenv("OPENAI_API_KEY")
         self.history: list[str] = []
         self.todo_file = Path("jarvis_todos.json")
+        self.notes_file = Path("jarvis_notes.json")
 
     def greet(self) -> str:
         return (
@@ -108,6 +110,11 @@ class Jarvis:
                   - todo list: show saved tasks
                   - todo clear: remove all tasks
                   - history: show recent prompts in this session
+                  - timer <seconds>: countdown timer
+                  - weather <city>: quick weather (wttr.in)
+                  - note add <text>: save a personal note
+                  - note list: show saved notes
+                  - note clear: remove all notes
                   - exit / quit: leave the assistant
 
                 Everything else is handled as a general AI prompt.
@@ -129,6 +136,16 @@ class Jarvis:
 
         if lower == "history":
             return self._show_history()
+
+        if lower.startswith("timer "):
+            raw_seconds = cleaned[6:].strip()
+            return self._timer(raw_seconds)
+
+        if lower.startswith("weather "):
+            city = cleaned[8:].strip()
+            if not city:
+                return "Please provide a city after 'weather'."
+            return self._weather(city)
 
         if lower.startswith("run "):
             command = cleaned[4:].strip()
@@ -157,6 +174,9 @@ class Jarvis:
         if lower.startswith("todo "):
             return self._handle_todo(cleaned[5:].strip())
 
+        if lower.startswith("note "):
+            return self._handle_notes(cleaned[5:].strip())
+
         llm_reply = self._ask_openai(cleaned)
         if llm_reply:
             return llm_reply
@@ -175,6 +195,36 @@ class Jarvis:
         for idx, item in enumerate(recent, start=1):
             lines.append(f"{idx}. {item}")
         return "\n".join(lines)
+
+    def _timer(self, raw_seconds: str) -> str:
+        try:
+            seconds = int(raw_seconds)
+        except ValueError:
+            return "Timer expects whole seconds, e.g. 'timer 10'."
+
+        if seconds <= 0:
+            return "Timer must be greater than 0 seconds."
+        if seconds > 600:
+            return "For safety, max timer is 600 seconds (10 minutes)."
+
+        time.sleep(seconds)
+        return f"⏰ Timer complete after {seconds} seconds."
+
+    def _weather(self, city: str) -> str:
+        encoded = urllib.parse.quote_plus(city)
+        url = f"https://wttr.in/{encoded}?format=3"
+        req = urllib.request.Request(url, headers={"User-Agent": "jarvis-assistant/1.0"})
+
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                output = response.read().decode("utf-8", errors="ignore").strip()
+        except urllib.error.URLError:
+            return "Weather lookup failed right now. Try again later."
+
+        if not output:
+            return "Weather lookup returned no data."
+
+        return f"Weather: {output}"
 
     def _run_shell(self, command: str) -> str:
         try:
@@ -382,6 +432,35 @@ class Jarvis:
 
         return "Use: todo add <task> | todo list | todo clear"
 
+    def _handle_notes(self, raw: str) -> str:
+        if not raw:
+            return "Use: note add <text> | note list | note clear"
+
+        lower = raw.lower()
+        if lower == "list":
+            notes = self._read_notes()
+            if not notes:
+                return "No notes yet."
+            lines = ["Notes:"]
+            for idx, item in enumerate(notes, start=1):
+                lines.append(f"{idx}. {item}")
+            return "\n".join(lines)
+
+        if lower == "clear":
+            self._write_notes([])
+            return "All notes cleared."
+
+        if lower.startswith("add "):
+            note = raw[4:].strip()
+            if not note:
+                return "Please provide note text after 'note add'."
+            notes = self._read_notes()
+            notes.append(note)
+            self._write_notes(notes)
+            return f"Saved note: {note}"
+
+        return "Use: note add <text> | note list | note clear"
+
     def _read_todos(self) -> list[str]:
         if not self.todo_file.exists():
             return []
@@ -398,6 +477,22 @@ class Jarvis:
     def _write_todos(self, items: list[str]) -> None:
         self.todo_file.write_text(json.dumps(items, indent=2), encoding="utf-8")
 
+    def _read_notes(self) -> list[str]:
+        if not self.notes_file.exists():
+            return []
+        try:
+            data = json.loads(self.notes_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return []
+
+        if not isinstance(data, list):
+            return []
+
+        return [str(item) for item in data]
+
+    def _write_notes(self, items: list[str]) -> None:
+        self.notes_file.write_text(json.dumps(items, indent=2), encoding="utf-8")
+
     @staticmethod
     def _offline_fallback(prompt: str) -> str:
         lower = prompt.lower()
@@ -408,7 +503,7 @@ class Jarvis:
         if "plan" in lower:
             return "Sure—tell me your goal, deadline, and constraints; I'll draft a plan."
         return (
-            "I can help with planning, coding support, shell commands, web lookup, quick math, and todos. "
+            "I can help with planning, coding support, shell commands, web lookup, quick math, todos, notes, and weather. "
             "Use 'help' to see everything I can do."
         )
 
