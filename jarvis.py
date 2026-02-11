@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""A lightweight, terminal-based JARVIS-style assistant."""
+"""A lightweight, terminal-based JARVIS-style assistant with web lookup."""
 
 from __future__ import annotations
 
 import datetime as dt
+import html
 import json
 import os
 import platform
+import re
 import subprocess
 import textwrap
 import urllib.error
+import urllib.parse
 import urllib.request
+from html.parser import HTMLParser
 
 
 SYSTEM_PROMPT = (
@@ -18,6 +22,49 @@ SYSTEM_PROMPT = (
     "Prioritize actionable answers, ask clarifying questions when needed, "
     "and stay respectful."
 )
+
+
+class _GoogleResultParser(HTMLParser):
+    """Very small parser to capture titles/snippets from Google result blocks."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.in_h3 = False
+        self.title_parts: list[str] = []
+        self.snippet_parts: list[str] = []
+        self.capture_snippet = False
+        self.results: list[tuple[str, str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_dict = {k: v or "" for k, v in attrs}
+
+        if tag == "h3":
+            self.in_h3 = True
+            self.title_parts = []
+            self.snippet_parts = []
+
+        cls = attrs_dict.get("class", "")
+        if tag == "div" and any(key in cls for key in ("VwiC3b", "s3v9rd", "lEBKkf")):
+            self.capture_snippet = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "h3":
+            self.in_h3 = False
+        if tag == "div" and self.capture_snippet:
+            self.capture_snippet = False
+            title = " ".join(self.title_parts).strip()
+            snippet = " ".join(self.snippet_parts).strip()
+            if title and snippet:
+                self.results.append((title, snippet))
+
+    def handle_data(self, data: str) -> None:
+        cleaned = " ".join(data.split())
+        if not cleaned:
+            return
+        if self.in_h3:
+            self.title_parts.append(cleaned)
+        elif self.capture_snippet:
+            self.snippet_parts.append(cleaned)
 
 
 class Jarvis:
@@ -47,10 +94,11 @@ class Jarvis:
                   - date: current local date
                   - system: OS and Python details
                   - run <command>: run a shell command
+                  - google <query>: web search via Google
                   - exit / quit: leave the assistant
 
                 Everything else is handled as a general AI prompt.
-                Set OPENAI_API_KEY to enable cloud intelligence.
+                If OPENAI_API_KEY is not set, JARVIS will try Google snippets.
                 """
             ).strip()
 
@@ -72,9 +120,19 @@ class Jarvis:
                 return "Please provide a command after 'run'."
             return self._run_shell(command)
 
+        if lower.startswith("google "):
+            query = cleaned[7:].strip()
+            if not query:
+                return "Please provide a query after 'google'."
+            return self._google_answer(query) or "I could not fetch Google results right now."
+
         llm_reply = self._ask_openai(cleaned)
         if llm_reply:
             return llm_reply
+
+        google_reply = self._google_answer(cleaned)
+        if google_reply:
+            return google_reply
 
         return self._offline_fallback(cleaned)
 
@@ -129,6 +187,78 @@ class Jarvis:
 
         return choices[0].get("message", {}).get("content")
 
+    def _google_answer(self, query: str) -> str | None:
+        snippets = self._google_search(query)
+        if not snippets:
+            return None
+
+        lines = [f"Here is what I found on Google for: {query}"]
+        for idx, (title, snippet) in enumerate(snippets, start=1):
+            lines.append(f"{idx}. {title} — {snippet}")
+
+        return "\n".join(lines)
+
+    def _google_search(self, query: str, max_results: int = 3) -> list[tuple[str, str]]:
+        encoded = urllib.parse.quote_plus(query)
+        url = f"https://www.google.com/search?q={encoded}&hl=en"
+
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                )
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                html_text = response.read().decode("utf-8", errors="ignore")
+        except urllib.error.URLError:
+            return []
+
+        parser = _GoogleResultParser()
+        parser.feed(html_text)
+        parsed = parser.results
+
+        if not parsed:
+            parsed = self._regex_google_fallback(html_text)
+
+        clean_results: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for title, snippet in parsed:
+            t = html.unescape(title).strip()
+            s = html.unescape(snippet).strip()
+            key = f"{t}::{s}"
+            if t and s and key not in seen:
+                clean_results.append((t, s))
+                seen.add(key)
+            if len(clean_results) >= max_results:
+                break
+
+        return clean_results
+
+    @staticmethod
+    def _regex_google_fallback(raw_html: str) -> list[tuple[str, str]]:
+        title_matches = re.findall(r"<h3[^>]*>(.*?)</h3>", raw_html, flags=re.S)
+        snippet_matches = re.findall(
+            r'<div class="(?:VwiC3b|s3v9rd|lEBKkf)[^"]*"[^>]*>(.*?)</div>',
+            raw_html,
+            flags=re.S,
+        )
+
+        results: list[tuple[str, str]] = []
+        for title, snippet in zip(title_matches, snippet_matches):
+            title_text = re.sub(r"<[^>]+>", " ", title)
+            snippet_text = re.sub(r"<[^>]+>", " ", snippet)
+            title_text = " ".join(title_text.split())
+            snippet_text = " ".join(snippet_text.split())
+            if title_text and snippet_text:
+                results.append((title_text, snippet_text))
+        return results
+
     @staticmethod
     def _offline_fallback(prompt: str) -> str:
         lower = prompt.lower()
@@ -139,8 +269,8 @@ class Jarvis:
         if "plan" in lower:
             return "Sure—tell me your goal, deadline, and constraints; I'll draft a plan."
         return (
-            "I can help with planning, coding support, shell commands, and quick answers. "
-            "Set OPENAI_API_KEY for full AI responses."
+            "I can help with planning, coding support, shell commands, quick answers, and Google search. "
+            "Use 'google <query>' for explicit web lookup."
         )
 
 
