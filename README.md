@@ -13,7 +13,8 @@ This repository includes a lightweight terminal-based assistant inspired by JARV
 - Session history (`history`)
 - Quick weather lookup (`weather <city>`)
 - Countdown timer (`timer <seconds>`)
-- Fun utilities (`joke`, `quote`, `uuid`, `password <length>`)
+- Fun utilities (`joke`, `quote`, `uuid`, `password <length>`, `random fact`)
+- Unit conversion (`convert <value> <from> <to>`)
 - Optional OpenAI-backed responses when `OPENAI_API_KEY` is set
 
 ## Run
@@ -35,6 +36,8 @@ python3 jarvis.py
 - `timer <seconds>`: waits and notifies when finished
 - `joke` / `quote` / `uuid`
 - `password <length>`: generate secure random password
+- `convert <value> <from> <to>`: supports `c/f`, `km/mi`, `kg/lb`
+- `random fact`: quick interesting fact
 - `exit` / `quit`
 
 ## Optional environment variables
@@ -56,4 +59,6 @@ You > password 16
 JARVIS > Generated password: ...
 You > quote
 JARVIS > 💡 ...
+You > convert 10 km mi
+JARVIS > 10 km = 6.214 mi
 ```

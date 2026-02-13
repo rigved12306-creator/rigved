@@ -121,6 +121,8 @@ class Jarvis:
                   - quote: motivational quote
                   - uuid: generate a unique id
                   - password <length>: secure password generator
+                  - convert <value> <from> <to>: unit conversion (c/f, km/mi, kg/lb)
+                  - random fact: quick interesting fact
                   - exit / quit: leave the assistant
 
                 Everything else is handled as a general AI prompt.
@@ -195,6 +197,13 @@ class Jarvis:
         if lower.startswith("password "):
             raw_len = cleaned[9:].strip()
             return self._password(raw_len)
+
+        if lower.startswith("convert "):
+            raw = cleaned[8:].strip()
+            return self._convert(raw)
+
+        if lower == "random fact":
+            return self._random_fact()
 
         llm_reply = self._ask_openai(cleaned)
         if llm_reply:
@@ -516,6 +525,48 @@ class Jarvis:
         generated = "".join(secrets.choice(alphabet) for _ in range(length))
         return f"Generated password: {generated}"
 
+
+    @staticmethod
+    def _convert(raw: str) -> str:
+        parts = raw.split()
+        if len(parts) != 3:
+            return "Use: convert <value> <from> <to> (e.g., convert 10 km mi)"
+
+        value_raw, from_unit, to_unit = parts
+        from_unit = from_unit.lower()
+        to_unit = to_unit.lower()
+
+        try:
+            value = float(value_raw)
+        except ValueError:
+            return "Value must be a number, e.g. convert 10 km mi"
+
+        converters = {
+            ("c", "f"): lambda x: (x * 9 / 5) + 32,
+            ("f", "c"): lambda x: (x - 32) * 5 / 9,
+            ("km", "mi"): lambda x: x * 0.621371,
+            ("mi", "km"): lambda x: x / 0.621371,
+            ("kg", "lb"): lambda x: x * 2.20462,
+            ("lb", "kg"): lambda x: x / 2.20462,
+        }
+
+        key = (from_unit, to_unit)
+        if key not in converters:
+            return "Supported conversions: c↔f, km↔mi, kg↔lb"
+
+        converted = converters[key](value)
+        return f"{value:g} {from_unit} = {converted:.3f} {to_unit}"
+
+    @staticmethod
+    def _random_fact() -> str:
+        facts = [
+            "Octopuses have three hearts and blue blood.",
+            "Bananas are berries, but strawberries are not.",
+            "The first computer bug was an actual moth in 1947.",
+            "Honey never spoils when stored properly.",
+        ]
+        return f"📘 {secrets.choice(facts)}"
+
     def _read_todos(self) -> list[str]:
         if not self.todo_file.exists():
             return []
@@ -558,7 +609,7 @@ class Jarvis:
         if "plan" in lower:
             return "Sure—tell me your goal, deadline, and constraints; I'll draft a plan."
         return (
-            "I can help with planning, coding support, shell commands, web lookup, quick math, todos, notes, weather, jokes, quotes, and passwords. "
+            "I can help with planning, coding support, shell commands, web lookup, quick math, todos, notes, weather, jokes, quotes, passwords, conversions, and facts. "
             "Use 'help' to see everything I can do."
         )
 
