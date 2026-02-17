@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import ast
+import base64
 import datetime as dt
+import hashlib
 import html
 import json
+import binascii
 import os
 import platform
 import re
@@ -123,6 +126,9 @@ class Jarvis:
                   - password <length>: secure password generator
                   - convert <value> <from> <to>: unit conversion (c/f, km/mi, kg/lb)
                   - random fact: quick interesting fact
+                  - hash <text>: SHA256 hash
+                  - base64 encode <text> | base64 decode <text>
+                  - json pretty <json>: format JSON text
                   - exit / quit: leave the assistant
 
                 Everything else is handled as a general AI prompt.
@@ -204,6 +210,19 @@ class Jarvis:
 
         if lower == "random fact":
             return self._random_fact()
+
+        if lower.startswith("hash "):
+            text = cleaned[5:].strip()
+            if not text:
+                return "Please provide text after 'hash'."
+            return self._hash_text(text)
+
+        if lower.startswith("base64 "):
+            return self._base64_tool(cleaned[7:].strip())
+
+        if lower.startswith("json pretty "):
+            raw = cleaned[12:].strip()
+            return self._json_pretty(raw)
 
         llm_reply = self._ask_openai(cleaned)
         if llm_reply:
@@ -567,6 +586,48 @@ class Jarvis:
         ]
         return f"📘 {secrets.choice(facts)}"
 
+
+    @staticmethod
+    def _hash_text(text: str) -> str:
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        return f"SHA256: {digest}"
+
+    @staticmethod
+    def _base64_tool(raw: str) -> str:
+        if not raw:
+            return "Use: base64 encode <text> OR base64 decode <text>"
+
+        if raw.startswith("encode "):
+            plain = raw[7:]
+            if not plain:
+                return "Please provide text to encode."
+            out = base64.b64encode(plain.encode("utf-8")).decode("utf-8")
+            return f"base64: {out}"
+
+        if raw.startswith("decode "):
+            encoded = raw[7:].strip()
+            if not encoded:
+                return "Please provide base64 text to decode."
+            try:
+                out = base64.b64decode(encoded, validate=True).decode("utf-8")
+            except (binascii.Error, UnicodeDecodeError):
+                return "Invalid base64 input."
+            return f"decoded: {out}"
+
+        return "Use: base64 encode <text> OR base64 decode <text>"
+
+    @staticmethod
+    def _json_pretty(raw: str) -> str:
+        if not raw:
+            return "Please provide JSON after 'json pretty'."
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return "Invalid JSON input."
+
+        return json.dumps(data, indent=2, ensure_ascii=False)
+
     def _read_todos(self) -> list[str]:
         if not self.todo_file.exists():
             return []
@@ -609,7 +670,7 @@ class Jarvis:
         if "plan" in lower:
             return "Sure—tell me your goal, deadline, and constraints; I'll draft a plan."
         return (
-            "I can help with planning, coding support, shell commands, web lookup, quick math, todos, notes, weather, jokes, quotes, passwords, conversions, and facts. "
+            "I can help with planning, coding support, shell commands, web lookup, quick math, todos, notes, weather, jokes, quotes, passwords, conversions, facts, hashes, base64, and JSON formatting. "
             "Use 'help' to see everything I can do."
         )
 
