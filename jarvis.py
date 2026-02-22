@@ -18,6 +18,7 @@ import subprocess
 import textwrap
 import time
 import uuid
+from collections import Counter
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -84,6 +85,7 @@ class Jarvis:
         self.history: list[str] = []
         self.todo_file = Path("jarvis_todos.json")
         self.notes_file = Path("jarvis_notes.json")
+        self.stopwatch_started_at: float | None = None
 
     def greet(self) -> str:
         return (
@@ -129,6 +131,9 @@ class Jarvis:
                   - hash <text>: SHA256 hash
                   - base64 encode <text> | base64 decode <text>
                   - json pretty <json>: format JSON text
+                  - text stats <text>: character/word stats
+                  - text reverse <text>: reverse text
+                  - stopwatch start|stop: simple session stopwatch
                   - exit / quit: leave the assistant
 
                 Everything else is handled as a general AI prompt.
@@ -223,6 +228,18 @@ class Jarvis:
         if lower.startswith("json pretty "):
             raw = cleaned[12:].strip()
             return self._json_pretty(raw)
+
+        if lower.startswith("text stats "):
+            raw = cleaned[11:]
+            return self._text_stats(raw)
+
+        if lower.startswith("text reverse "):
+            raw = cleaned[13:]
+            return self._text_reverse(raw)
+
+        if lower.startswith("stopwatch "):
+            raw = cleaned[10:].strip()
+            return self._stopwatch(raw)
 
         llm_reply = self._ask_openai(cleaned)
         if llm_reply:
@@ -628,6 +645,46 @@ class Jarvis:
 
         return json.dumps(data, indent=2, ensure_ascii=False)
 
+
+    @staticmethod
+    def _text_reverse(raw: str) -> str:
+        if not raw.strip():
+            return "Please provide text after 'text reverse'."
+        return raw[::-1]
+
+    @staticmethod
+    def _text_stats(raw: str) -> str:
+        text = raw.strip()
+        if not text:
+            return "Please provide text after 'text stats'."
+
+        words = [w for w in text.split() if w]
+        chars = len(text)
+        lines = text.count("\n") + 1
+        letters_only = [c.lower() for c in text if c.isalpha()]
+        top = Counter(letters_only).most_common(3)
+        top_str = ", ".join(f"{ch}:{count}" for ch, count in top) if top else "n/a"
+
+        return (
+            f"chars={chars}, words={len(words)}, lines={lines}, "
+            f"top_letters={top_str}"
+        )
+
+    def _stopwatch(self, raw: str) -> str:
+        cmd = raw.lower()
+        if cmd == "start":
+            self.stopwatch_started_at = time.time()
+            return "⏱️ Stopwatch started."
+
+        if cmd == "stop":
+            if self.stopwatch_started_at is None:
+                return "Stopwatch was not started. Use 'stopwatch start' first."
+            elapsed = time.time() - self.stopwatch_started_at
+            self.stopwatch_started_at = None
+            return f"⏱️ Stopwatch: {elapsed:.2f} seconds."
+
+        return "Use: stopwatch start | stopwatch stop"
+
     def _read_todos(self) -> list[str]:
         if not self.todo_file.exists():
             return []
@@ -670,7 +727,7 @@ class Jarvis:
         if "plan" in lower:
             return "Sure—tell me your goal, deadline, and constraints; I'll draft a plan."
         return (
-            "I can help with planning, coding support, shell commands, web lookup, quick math, todos, notes, weather, jokes, quotes, passwords, conversions, facts, hashes, base64, and JSON formatting. "
+            "I can help with planning, coding support, shell commands, web lookup, quick math, todos, notes, weather, jokes, quotes, passwords, conversions, facts, hashes, base64, JSON formatting, text tools, and stopwatch timing. "
             "Use 'help' to see everything I can do."
         )
 
